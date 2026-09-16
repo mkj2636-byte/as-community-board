@@ -25,6 +25,7 @@
         .btn-success { background-color: #2ecc71; color: white; }
         .btn-success:hover { background-color: #27ae60; }
         .btn-danger { background-color: #e74c3c; color: white; }
+        .btn-danger:hover { background-color: #c0392b; }
         .btn-secondary { background-color: #95a5a6; color: white; }
         .btn-sm { padding: 0 8px; height: 30px; line-height: 30px; font-size: 12px; }
 
@@ -123,6 +124,7 @@
             #view-list td:nth-child(5)::before { content: "• "; color: #ccc; }
             #view-list td:nth-child(6) { position: absolute; top: 12px; right: 12px; }
             #view-list td:nth-child(7) { font-size: 12px; color: #95a5a6; display: inline-block; float: right; margin-top: 2px; }
+            #view-list td:nth-child(8) { margin-top: 8px; text-align: right; }
 
             #view-admin .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
             #view-admin table { min-width: 500px; }
@@ -164,11 +166,6 @@
         <p style="margin-top: 15px; text-align: center; font-size: 14px;">
             계정이 없으신가요? <a href="#" onclick="switchView('view-signup')">회원가입</a>
         </p>
-        <div style="margin-top: 20px; padding: 10px; background: #eef; border-radius: 4px; font-size: 12px;">
-            <strong>[테스트 계정 안내]</strong><br>
-            - 관리자: 아이디 <code>admin</code> / 비밀번호 <code>admin</code><br>
-            - 일반 사용자: 회원가입 후 관리자 승인 필요
-        </div>
     </section>
 
     <!-- 2. 회원가입 화면 -->
@@ -255,6 +252,7 @@
                         <th style="width: 90px;">작성자</th>
                         <th style="width: 90px;">상태</th>
                         <th style="width: 110px;">등록일</th>
+                        <th id="thAdminAction" style="width: 70px; display: none;">관리</th>
                     </tr>
                 </thead>
                 <tbody id="postTableBody">
@@ -349,6 +347,7 @@
 
         <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end;">
             <button class="btn btn-secondary" onclick="switchView('view-list')">목록으로</button>
+            <button id="btnDeletePost" class="btn btn-danger" onclick="deletePost(currentPostId)" style="display: none;">삭제하기</button>
             <button id="btnProcess" class="btn btn-success" onclick="openProcessModal()" style="display: none;">처리하기</button>
         </div>
     </section>
@@ -637,19 +636,16 @@
 
     // --- Board Filter (Radio Button) & Search Logic ---
     function applyFilterAndSearch() {
-        // 선택된 상태값 라디오 버튼 값 읽기 (ALL, RECEIVED, COMPLETED)
         const selectedStatus = document.querySelector('input[name="statusFilter"]:checked').value;
         const searchType = document.getElementById('searchTypeSelect').value;
         const keyword = document.getElementById('searchInput').value.trim().toLowerCase();
 
         let results = [...posts];
 
-        // 1. 라디오 버튼 선택값 필터링 (RECEIVED: 접수대기, COMPLETED: 처리완료)
         if (selectedStatus !== 'ALL') {
             results = results.filter(p => p.status === selectedStatus);
         }
 
-        // 2. 검색어 필터링
         if (keyword) {
             results = results.filter(p => {
                 const targetValue = (p[searchType] || '').toLowerCase();
@@ -673,8 +669,11 @@
         const tbody = document.getElementById('postTableBody');
         tbody.innerHTML = '';
 
+        const isAdmin = currentUser && currentUser.role === 'ADMIN';
+        document.getElementById('thAdminAction').style.display = isAdmin ? 'table-cell' : 'none';
+
         if (filteredPosts.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#888;">등록된 게시글이 없습니다.</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${isAdmin ? 8 : 7}" style="text-align:center; color:#888;">등록된 게시글이 없습니다.</td></tr>`;
             renderPagination(0);
             return;
         }
@@ -686,7 +685,14 @@
         pagePosts.forEach(p => {
             const tr = document.createElement('tr');
             tr.style.cursor = 'pointer';
-            tr.onclick = () => openPostDetail(p.id);
+            tr.onclick = (e) => {
+                // 관리 버튼(삭제) 터치 시 상세 보기 이동 방지
+                if (e.target.tagName === 'BUTTON') return;
+                openPostDetail(p.id);
+            };
+
+            const adminTd = isAdmin ? `<td><button class="btn btn-sm btn-danger" onclick="deletePost(${p.id})">삭제</button></td>` : '';
+
             tr.innerHTML = `
                 <td>${p.id}</td>
                 <td>${p.schoolName}</td>
@@ -695,11 +701,33 @@
                 <td>${p.author}</td>
                 <td>${p.status === 'RECEIVED' ? '<span class="badge" style="background:orange; color:white;">접수대기</span>' : '<span class="badge" style="background:green; color:white;">처리완료</span>'}</td>
                 <td>${p.createdAt.substring(5, 10)}</td>
+                ${adminTd}
             `;
             tbody.appendChild(tr);
         });
 
         renderPagination(filteredPosts.length);
+    }
+
+    // --- 관리자 게시글 삭제 기능 ---
+    function deletePost(postId) {
+        if (!currentUser || currentUser.role !== 'ADMIN') {
+            alert('관리자 권한이 필요합니다.');
+            return;
+        }
+
+        if (confirm(`정말 ${postId}번 게시글을 삭제하시겠습니까?`)) {
+            posts = posts.filter(p => p.id !== postId);
+            alert('게시글이 삭제되었습니다.');
+            
+            // 현재 화면이 상세페이지면 목록으로 이동, 목록페이지면 목록 재갱신
+            const detailView = document.getElementById('view-detail');
+            if (detailView.classList.contains('active')) {
+                switchView('view-list');
+            } else {
+                applyFilterAndSearch();
+            }
+        }
     }
 
     function renderPagination(totalItems) {
@@ -1038,8 +1066,10 @@
             procSection.style.display = 'none';
         }
 
-        const btnProcess = document.getElementById('btnProcess');
-        btnProcess.style.display = (currentUser && currentUser.role === 'ADMIN' && p.status === 'RECEIVED') ? 'inline-block' : 'none';
+        // 관리자 권한에 따른 버튼 제어
+        const isAdmin = currentUser && currentUser.role === 'ADMIN';
+        document.getElementById('btnDeletePost').style.display = isAdmin ? 'inline-block' : 'none';
+        document.getElementById('btnProcess').style.display = (isAdmin && p.status === 'RECEIVED') ? 'inline-block' : 'none';
 
         switchView('view-detail');
     }
